@@ -77,10 +77,10 @@ class GPEN_degradation(GFPGAN_degradation):
         self.kernel_list = ['iso', 'aniso']
         self.kernel_prob = [0.5, 0.5]
         self.blur_kernel_size = 21
-        self.blur_sigma = [0.1, 10]
-        self.downsample_range = [10, 100]
-        self.noise_range = [0, 25]
-        self.jpeg_range = [5, 50]
+        self.blur_sigma = [0.1, 5]
+        self.downsample_range = [0.8, 6]
+        self.noise_range = [0, 20]
+        self.jpeg_range = [60, 100]
         self.gray_prob = 0.2
         self.color_jitter_prob = 0.0
         self.color_jitter_pt_prob = 0.0
@@ -94,6 +94,8 @@ class FaceDataset(Dataset):
         for path, subdirs, files in os.walk(path):
             for name in files:
                 self.HQ_imgs.append(os.path.join(path, name))
+        if self.HQ_imgs[0].split(".")[-1] == "txt":
+            self.HQ_imgs = self.HQ_imgs[1:]
         self.length = len(self.HQ_imgs)
 
         #self.degrader = GFPGAN_degradation()
@@ -127,4 +129,3 @@ class FaceDataset(Dataset):
         img_lq = img_lq.permute(2, 0, 1).flip(0) # BGR->RGB
 
         return img_lq, img_gt
-

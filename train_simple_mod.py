@@ -388,8 +388,8 @@ if __name__ == '__main__':
         params += list(getattr(generator, att).parameters())
     g_optim = optim.Adam(
         [
+            {"params": generator.generator.parameters(), "lr": args.lr * 0.1, "betas": (0, 0.99)},
             {"params": params, "lr": args.lr, "betas": (0, 0.99)},
-            {"params": generator.generator.parameters(), "lr": args.lr * 0.1, "betas": (0, 0.99)}
         ]
     )
 
@@ -401,28 +401,29 @@ if __name__ == '__main__':
 
     if args.pretrain is not None:
         print('load model:', args.pretrain)
-        """
-        ckpt = torch.load("stylegan2.pt")
-        generator.generator.load_state_dict(ckpt)
-        accumulate(g_ema, generator, 0)
-        """
+
         ckpt = torch.load(args.pretrain)
+        """
         generator.generator.load_state_dict(ckpt['g'])
         g_ema.generator.load_state_dict(ckpt['g_ema'])
+
+        #ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
         #g_optim.load_state_dict(ckpt['g_optim'])
-        #d_optim.load_state_dict(ckpt['d_optim'])
-        #del ckpt
-        #torch.cuda.empty_cache()
-        #ckpt = torch.load("weights/GPEN-BFR-512-D.pth")
+        #g_optim.add_param_group({"params": params, "lr": args.lr, "betas": (0, 0.99)})
+        ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
+        d_optim.load_state_dict(ckpt['d_optim'])
+        """
+        ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
+        ckpt["g_optim"]["param_groups"][1]["lr"] = args.lr
+        ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
+        generator.load_state_dict(ckpt['g'])
+        g_ema.load_state_dict(ckpt['g_ema'])
+        d_optim.load_state_dict(ckpt['d_optim'])
+        g_optim.load_state_dict(ckpt['g_optim'])
+        #"""
         discriminator.load_state_dict(ckpt['d'])
         del ckpt
         torch.cuda.empty_cache()
-        """
-        ckpt = torch.load("weights/GPEN-BFR-512-D.pth")
-        discriminator.load_state_dict(ckpt)
-        #"""    
-        #g_optim.load_state_dict(ckpt['g_optim'])
-        #d_optim.load_state_dict(ckpt['d_optim'])
     
     smooth_l1_loss = torch.nn.SmoothL1Loss().to(device)
     id_loss = IDLoss(args.base_dir, device, ckpt_dict=None)

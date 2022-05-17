@@ -100244,3 +100244,4 @@ nohup.out
 .vscode/settings.json
 lpips.txt
 download_ffhq_scripts/ffhq-dataset-v2.json
+weights/050000.pth
