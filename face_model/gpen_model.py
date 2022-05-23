@@ -290,16 +290,20 @@ class NoiseInjection(nn.Module):
 
         self.isconcat = isconcat
         self.weight = nn.Parameter(torch.zeros(1))
+        self.weight2 = nn.Parameter(torch.zeros(1))
 
     def forward(self, image, noise=None):
         if noise is None:
             batch, channel, height, width = image.shape
             noise = image.new_empty(batch, channel, height, width).normal_()
+        
+        batch, channel, height, width = image.shape
+        noise2 = image.new_empty(batch, channel, height, width).normal_()
 
         if self.isconcat:
             return torch.cat((image, self.weight * noise), dim=1)
         else:
-            return image + self.weight * noise
+            return image + self.weight * noise2 + self.weight2 * noise
 
 
 class ConstantInput(nn.Module):

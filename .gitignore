@@ -100245,3 +100245,9 @@ nohup.out
 lpips.txt
 download_ffhq_scripts/ffhq-dataset-v2.json
 weights/050000.pth
+train_simple_mod2.py
+weights/020000_256_02022.pth
+weights/020000_512.pth
+weights/050000_bak_256.pth
+550000_w2.pt
+ffhq-512-avg-tpurun1_rm_noise_w2.pt

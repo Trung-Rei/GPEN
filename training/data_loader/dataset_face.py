@@ -76,10 +76,10 @@ class GPEN_degradation(GFPGAN_degradation):
         super().__init__()
         self.kernel_list = ['iso', 'aniso']
         self.kernel_prob = [0.5, 0.5]
-        self.blur_kernel_size = 21
-        self.blur_sigma = [0.1, 5]
-        self.downsample_range = [0.8, 6]
-        self.noise_range = [0, 20]
+        self.blur_kernel_size = 41
+        self.blur_sigma = [0.1, 10]
+        self.downsample_range = [1, 12]
+        self.noise_range = [0, 25]
         self.jpeg_range = [60, 100]
         self.gray_prob = 0.2
         self.color_jitter_prob = 0.0
@@ -98,8 +98,8 @@ class FaceDataset(Dataset):
             self.HQ_imgs = self.HQ_imgs[1:]
         self.length = len(self.HQ_imgs)
 
-        #self.degrader = GFPGAN_degradation()
-        self.degrader = GPEN_degradation()
+        self.degrader = GFPGAN_degradation()
+        #self.degrader = GPEN_degradation()
 
     def __len__(self):
         return self.length

@@ -105,10 +105,10 @@ def g_paper_loss(fake_pred, loss_funcs=None, fake_img=None, real_img=None, input
     
     loss = F.softplus(-fake_pred).mean()
     loss_l1 = smooth_l1_loss(fake_img, real_img)
-    #loss_id, __, __ = id_loss(fake_img, real_img, input_img)
+    loss_id, __, __ = id_loss(fake_img, real_img, input_img)
     loss_fm = feature_matching_loss(fea_fake, fea_real, mse_loss)
 
-    loss += 1.0*loss_l1 + 0.02*loss_fm# + 1.0*loss_id
+    loss += 1.0*loss_l1 + 0.01*loss_fm + 1.0*loss_id
 
     return loss
 
@@ -305,6 +305,12 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
                         range=(-1, 1),
                     )
 
+            if i % args.save_freq == 0:
+                lpips_value = validation(g_ema, lpips_func, args, device)
+                print(f'{i}/{args.iter}: lpips: {lpips_value.cpu().numpy()[0][0][0][0]}')
+                with open("lpips.txt", "a") as f:
+                    f.write(f'{i}/{args.iter}: lpips: {lpips_value.cpu().numpy()[0][0][0][0]}\n')
+
             if i and i % args.save_freq == 0:
                 torch.save(
                     {
@@ -316,12 +322,6 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
                     },
                     f'{args.ckpt}/{str(i).zfill(6)}.pth',
                 )
-
-            if i % args.save_freq == 0:
-                lpips_value = validation(g_ema, lpips_func, args, device)
-                print(f'{i}/{args.iter}: lpips: {lpips_value.cpu().numpy()[0][0][0][0]}')
-                with open("lpips.txt", "a") as f:
-                    f.write(f'{i}/{args.iter}: lpips: {lpips_value.cpu().numpy()[0][0][0][0]}\n')
 
 if __name__ == '__main__':
 
@@ -410,12 +410,12 @@ if __name__ == '__main__':
         #ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
         #g_optim.load_state_dict(ckpt['g_optim'])
         #g_optim.add_param_group({"params": params, "lr": args.lr, "betas": (0, 0.99)})
-        ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
-        d_optim.load_state_dict(ckpt['d_optim'])
+        #ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
+        #d_optim.load_state_dict(ckpt['d_optim'])
         """
-        ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
-        ckpt["g_optim"]["param_groups"][1]["lr"] = args.lr
-        ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
+        #ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
+        #ckpt["g_optim"]["param_groups"][1]["lr"] = args.lr
+        #ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
         generator.load_state_dict(ckpt['g'])
         g_ema.load_state_dict(ckpt['g_ema'])
         d_optim.load_state_dict(ckpt['d_optim'])
