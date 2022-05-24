@@ -100251,3 +100251,7 @@ weights/020000_512.pth
 weights/050000_bak_256.pth
 550000_w2.pt
 ffhq-512-avg-tpurun1_rm_noise_w2.pt
+weights/FFHQ_eye_mouth_landmarks_512.pth
+weights/GFPGANv1_net_d_left_eye.pth
+weights/GFPGANv1_net_d_mouth.pth
+weights/GFPGANv1_net_d_right_eye.pth

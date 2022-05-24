@@ -26,8 +26,10 @@ class GFPGAN_degradation(object):
         self.shift = 20/255.
     
     def degrade_process(self, img_gt):
+        hflip = False
         if random.random() > 0.5:
             img_gt = cv2.flip(img_gt, 1)
+            hflip = True
 
         h, w = img_gt.shape[:2]
        
@@ -69,7 +71,7 @@ class GFPGAN_degradation(object):
         # resize to original size
         img_lq = cv2.resize(img_lq, (w, h), interpolation=cv2.INTER_LINEAR)
 
-        return img_gt, img_lq
+        return img_gt, img_lq, hflip
 
 class GPEN_degradation(GFPGAN_degradation):
     def __init__(self):
@@ -87,7 +89,7 @@ class GPEN_degradation(GFPGAN_degradation):
         self.shift = 20/255.
 
 class FaceDataset(Dataset):
-    def __init__(self, path, resolution=512):
+    def __init__(self, path, comp_path, resolution=512):
         self.resolution = resolution
 
         self.HQ_imgs = []
@@ -101,8 +103,36 @@ class FaceDataset(Dataset):
         self.degrader = GFPGAN_degradation()
         #self.degrader = GPEN_degradation()
 
+        self.components_list = torch.load(comp_path)
+        self.eye_enlarge_ratio = 1.4
+
     def __len__(self):
         return self.length
+
+    def get_component_coordinates(self, index, status):
+        """Get facial component (left_eye, right_eye, mouth) coordinates from a pre-loaded pth file"""
+        components_bbox = self.components_list[f'{index:08d}']
+        if status:  # hflip
+            # exchange right and left eye
+            tmp = components_bbox['left_eye']
+            components_bbox['left_eye'] = components_bbox['right_eye']
+            components_bbox['right_eye'] = tmp
+            # modify the width coordinate
+            components_bbox['left_eye'][0] = self.resolution - components_bbox['left_eye'][0]
+            components_bbox['right_eye'][0] = self.resolution - components_bbox['right_eye'][0]
+            components_bbox['mouth'][0] = self.resolution - components_bbox['mouth'][0]
+
+        # get coordinates
+        locations = []
+        for part in ['left_eye', 'right_eye', 'mouth']:
+            mean = components_bbox[part][0:2]
+            half_len = components_bbox[part][2]
+            if 'eye' in part:
+                half_len *= self.eye_enlarge_ratio
+            loc = np.hstack((mean - half_len + 1, mean + half_len))
+            loc = torch.from_numpy(loc).float()
+            locations.append(loc)
+        return locations
 
     def __getitem__(self, index):
         while True:
@@ -120,7 +150,12 @@ class FaceDataset(Dataset):
         # We adopt the degradation of GFPGAN for simplicity, which however differs from our implementation in the paper.
         # Data degradation plays a key role in BFR. Please replace it with your own methods.
         img_gt = img_gt.astype(np.float32)/255.
-        img_gt, img_lq = self.degrader.degrade_process(img_gt)
+        img_gt, img_lq, hflip = self.degrader.degrade_process(img_gt)
+
+        ind = int(self.HQ_imgs[index].split("/")[-1].split(".")[0])
+        locations = self.get_component_coordinates(ind, hflip)
+        loc_left_eye, loc_right_eye, loc_mouth = locations
+        #locs = {"loc_left_eye": loc_left_eye, "loc_right_eye": loc_right_eye, "loc_mouth": loc_mouth}
 
         img_gt =  (torch.from_numpy(img_gt) - 0.5) / 0.5
         img_lq =  (torch.from_numpy(img_lq) - 0.5) / 0.5
@@ -128,4 +163,4 @@ class FaceDataset(Dataset):
         img_gt = img_gt.permute(2, 0, 1).flip(0) # BGR->RGB
         img_lq = img_lq.permute(2, 0, 1).flip(0) # BGR->RGB
 
-        return img_lq, img_gt
+        return img_lq, img_gt, loc_left_eye, loc_right_eye, loc_mouth
