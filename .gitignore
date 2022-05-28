@@ -100255,3 +100255,11 @@ weights/FFHQ_eye_mouth_landmarks_512.pth
 weights/GFPGANv1_net_d_left_eye.pth
 weights/GFPGANv1_net_d_mouth.pth
 weights/GFPGANv1_net_d_right_eye.pth
+weights/005000.pth
+weights/010000.pth
+weights/015000.pth
+weights/020000_512_02846.pth
+weights/030000_512_02861_comp.pth
+__pycache__/FacialComponent.cpython-38.pyc
+facial_comp.ipynb
+test.ipynb

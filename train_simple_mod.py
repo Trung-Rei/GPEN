@@ -36,6 +36,12 @@ from distributed import (
 
 from training import lpips
 
+import yaml
+from basicsr.utils.options import ordered_yaml
+from basicsr.losses import build_loss
+from basicsr.archs import build_network
+from FacialComponent import get_roi_regions, comp_style
+
 
 def data_sampler(dataset, shuffle, distributed):
     if distributed:
@@ -108,7 +114,7 @@ def g_paper_loss(fake_pred, loss_funcs=None, fake_img=None, real_img=None, input
     loss_id, __, __ = id_loss(fake_img, real_img, input_img)
     loss_fm = feature_matching_loss(fea_fake, fea_real, mse_loss)
 
-    loss += 1.0*loss_l1 + 0.01*loss_fm + 1.0*loss_id
+    loss += 1.0*loss_l1 + 0.1*loss_fm + 1.0*loss_id
 
     return loss
 
@@ -153,8 +159,11 @@ def validation(model, lpips_func, args, device):
     return dist_sum.data/len(lq_files)
 
 
-def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_ema, lpips_func, device):
+def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, g_optim, d_optim, comp_optims, g_ema, lpips_func, device):
     loader = sample_data(loader)
+    net_d_left_eye, net_d_right_eye, net_d_mouth = comp_nets
+    optimizer_d_left_eye, optimizer_d_right_eye, optimizer_d_mouth = comp_optims
+    cri_component, cri_gan, cri_l1 = comp_cris
 
     pbar = range(0, args.iter)
 
@@ -189,12 +198,18 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
 
             break
 
-        degraded_img, real_img = next(loader)
+        degraded_img, real_img, loc_left_eye, loc_right_eye, loc_mouth = next(loader)
         degraded_img = degraded_img.to(device)
         real_img = real_img.to(device)
 
         requires_grad(generator, False)
         requires_grad(discriminator, True)
+        requires_grad(net_d_left_eye, True)
+        requires_grad(net_d_right_eye, True)
+        requires_grad(net_d_mouth, True)
+        net_d_left_eye.zero_grad()
+        net_d_right_eye.zero_grad()
+        net_d_mouth.zero_grad()
 
         fake_img, _ = generator(degraded_img)
         fake_pred, _ = discriminator(fake_img)
@@ -209,6 +224,38 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
         discriminator.zero_grad()
         d_loss.backward()
         d_optim.step()
+
+        # optimize facial component discriminators
+        left_eyes_gt, right_eyes_gt, mouths_gt, left_eyes, right_eyes, mouths = \
+            get_roi_regions(real_img, fake_img, (loc_left_eye, loc_right_eye, loc_mouth), eye_out_size=80, mouth_out_size=120, device=device)
+
+        fake_d_pred, _ = net_d_left_eye(left_eyes)
+        real_d_pred, _ = net_d_left_eye(left_eyes_gt)
+        l_d_left_eye = cri_component(
+            real_d_pred, True, is_disc=True) + cri_gan(
+                fake_d_pred, False, is_disc=True)
+        loss_dict['l_d_left_eye'] = l_d_left_eye
+        l_d_left_eye.backward()
+
+        fake_d_pred, _ = net_d_right_eye(right_eyes)
+        real_d_pred, _ = net_d_right_eye(right_eyes_gt)
+        l_d_right_eye = cri_component(
+            real_d_pred, True, is_disc=True) + cri_gan(
+                fake_d_pred, False, is_disc=True)
+        loss_dict['l_d_right_eye'] = l_d_right_eye
+        l_d_right_eye.backward()
+
+        fake_d_pred, _ = net_d_mouth(mouths)
+        real_d_pred, _ = net_d_mouth(mouths_gt)
+        l_d_mouth = cri_component(
+            real_d_pred, True, is_disc=True) + cri_gan(
+                fake_d_pred, False, is_disc=True)
+        loss_dict['l_d_mouth'] = l_d_mouth
+        l_d_mouth.backward()
+
+        optimizer_d_left_eye.step()
+        optimizer_d_right_eye.step()
+        optimizer_d_mouth.step()
 
         d_regularize = i % args.d_reg_every == 0
 
@@ -230,18 +277,53 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
 
         requires_grad(generator, True)
         requires_grad(discriminator, False)
+        requires_grad(net_d_left_eye, False)
+        requires_grad(net_d_right_eye, False)
+        requires_grad(net_d_mouth, False)
 
         fake_img, _ = generator(degraded_img)
+        left_eyes_gt, right_eyes_gt, mouths_gt, left_eyes, right_eyes, mouths = \
+            get_roi_regions(real_img, fake_img, (loc_left_eye, loc_right_eye, loc_mouth), eye_out_size=80, mouth_out_size=120, device=device)
+
         _, feature_real = discriminator(real_img)
         fake_pred, feature_fake = discriminator(fake_img)
-        #g_loss = g_nonsaturating_loss(fake_pred, losses, fake_img, real_img, degraded_img)
         g_loss = g_paper_loss(fake_pred, losses, fake_img, real_img, degraded_img, feature_fake, feature_real)
+
+        # facial component loss
+        fake_left_eye, fake_left_eye_feats = net_d_left_eye(left_eyes, return_feats=True)
+        l_g_gan = cri_component(fake_left_eye, True, is_disc=False)# * 0.5
+        g_loss += l_g_gan
+        loss_dict['l_g_gan_left_eye'] = l_g_gan
+
+        fake_right_eye, fake_right_eye_feats = net_d_right_eye(right_eyes, return_feats=True)
+        l_g_gan = cri_component(fake_right_eye, True, is_disc=False)# * 0.5
+        g_loss += l_g_gan
+        loss_dict['l_g_gan_right_eye'] = l_g_gan
+
+        fake_mouth, fake_mouth_feats = net_d_mouth(mouths, return_feats=True)
+        l_g_gan = cri_component(fake_mouth, True, is_disc=False)# * 0.5
+        g_loss += l_g_gan
+        loss_dict['l_g_gan_mouth'] = l_g_gan
+
+        # facial component style loss
+        _, real_left_eye_feats = net_d_left_eye(left_eyes_gt, return_feats=True)
+        _, real_right_eye_feats = net_d_right_eye(right_eyes_gt, return_feats=True)
+        _, real_mouth_feats = net_d_mouth(mouths_gt, return_feats=True)
+
+        comp_style_loss = 0
+        comp_style_loss += comp_style(fake_left_eye_feats, real_left_eye_feats, cri_l1)
+        comp_style_loss += comp_style(fake_right_eye_feats, real_right_eye_feats, cri_l1)
+        comp_style_loss += comp_style(fake_mouth_feats, real_mouth_feats, cri_l1)
+        comp_style_loss = comp_style_loss * 100
+        g_loss += comp_style_loss
+        loss_dict['l_g_comp_style_loss'] = comp_style_loss
 
         loss_dict['g'] = g_loss
 
         generator.zero_grad()
         g_loss.backward()
         g_optim.step()
+
 
         g_regularize = i % args.g_reg_every == 0
 
@@ -279,6 +361,9 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
 
         d_loss_val = loss_reduced['d'].mean().item()
         g_loss_val = loss_reduced['g'].mean().item()
+        l_d_mouth_val = loss_reduced['l_d_mouth'].mean().item()
+        l_g_gan_mouth_val = loss_reduced['l_g_gan_mouth'].mean().item()
+        l_g_comp_style_loss_val = loss_reduced['l_g_comp_style_loss'].mean().item()
         #r1_val = loss_reduced['r1'].mean().item()
         #path_loss_val = loss_reduced['path'].mean().item()
         real_score_val = loss_reduced['real_score'].mean().item()
@@ -288,7 +373,7 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
         if get_rank() == 0:
             pbar.set_description(
                 (
-                    f'd: {d_loss_val:.4f}; g: {g_loss_val:.4f}; '
+                    f'd: {d_loss_val:.4f}; g: {g_loss_val:.4f}; l_d_mouth: {l_d_mouth_val:.4f}; l_g_gan_mouth: {l_g_gan_mouth_val:.4f}; l_g_comp_style_loss: {l_g_comp_style_loss_val:.4f}; '
                 )
             )
             
@@ -319,6 +404,12 @@ def train(args, loader, generator, discriminator, losses, g_optim, d_optim, g_em
                         'g_ema': g_ema.state_dict(),
                         'g_optim': g_optim.state_dict(),
                         'd_optim': d_optim.state_dict(),
+                        'net_d_left_eye': net_d_left_eye.state_dict(),
+                        'net_d_right_eye': net_d_right_eye.state_dict(),
+                        'net_d_mouth': net_d_mouth.state_dict(),
+                        'optimizer_d_left_eye': optimizer_d_left_eye.state_dict(),
+                        'optimizer_d_right_eye': optimizer_d_right_eye.state_dict(),
+                        'optimizer_d_mouth': optimizer_d_mouth.state_dict(),
                     },
                     f'{args.ckpt}/{str(i).zfill(6)}.pth',
                 )
@@ -379,6 +470,41 @@ if __name__ == '__main__':
     g_ema.eval()
     accumulate(g_ema, generator, 0)
 
+    # facial component discriminator
+    with open("train_gfpgan_v1.yml", mode='r') as f:
+        opt = yaml.load(f, Loader=ordered_yaml()[0])
+    net_d_mouth = build_network(opt['network_d_mouth']).to(device)
+    net_d_left_eye = build_network(opt['network_d_left_eye']).to(device)
+    net_d_right_eye = build_network(opt['network_d_right_eye']).to(device)
+    #net_d_mouth.load_state_dict(torch.load("weights/GFPGANv1_net_d_mouth.pth")["params"])
+    #net_d_left_eye.load_state_dict(torch.load("weights/GFPGANv1_net_d_left_eye.pth")["params"])
+    #net_d_right_eye.load_state_dict(torch.load("weights/GFPGANv1_net_d_right_eye.pth")["params"])
+    net_d_mouth.train()
+    net_d_left_eye.train()
+    net_d_right_eye.train()
+
+    # facial component loss
+    cri_component = build_loss(opt["train"]['gan_component_opt']).to(device)
+    cri_gan = build_loss(opt["train"]['gan_opt']).to(device)
+    cri_l1 = build_loss(opt["train"]['L1_opt']).to(device)
+
+    # optimizers for facial component networks
+    optimizer_d_mouth = optim.Adam(
+        net_d_mouth.parameters(),
+        lr=0.002,
+        betas=(0.9, 0.99),
+    )
+    optimizer_d_left_eye = optim.Adam(
+        net_d_left_eye.parameters(),
+        lr=0.002,
+        betas=(0.9, 0.99),
+    )
+    optimizer_d_right_eye = optim.Adam(
+        net_d_right_eye.parameters(),
+        lr=0.002,
+        betas=(0.9, 0.99),
+    )
+
     g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
     
@@ -416,11 +542,17 @@ if __name__ == '__main__':
         #ckpt["g_optim"]["param_groups"][0]["lr"] = args.lr * 0.1
         #ckpt["g_optim"]["param_groups"][1]["lr"] = args.lr
         #ckpt["d_optim"]["param_groups"][0]["lr"] = args.lr * 0.01
+        net_d_mouth.load_state_dict(ckpt['net_d_mouth'])
+        net_d_left_eye.load_state_dict(ckpt['net_d_left_eye'])
+        net_d_right_eye.load_state_dict(ckpt['net_d_right_eye'])
+        optimizer_d_mouth.load_state_dict(ckpt['optimizer_d_mouth'])
+        optimizer_d_left_eye.load_state_dict(ckpt['optimizer_d_left_eye'])
+        optimizer_d_right_eye.load_state_dict(ckpt['optimizer_d_right_eye'])
+
         generator.load_state_dict(ckpt['g'])
         g_ema.load_state_dict(ckpt['g_ema'])
         d_optim.load_state_dict(ckpt['d_optim'])
         g_optim.load_state_dict(ckpt['g_optim'])
-        #"""
         discriminator.load_state_dict(ckpt['d'])
         del ckpt
         torch.cuda.empty_cache()
@@ -452,7 +584,7 @@ if __name__ == '__main__':
             broadcast_buffers=False,
         )
 
-    dataset = FaceDataset(args.path, args.size)
+    dataset = FaceDataset(args.path, "weights/FFHQ_eye_mouth_landmarks_512.pth", args.size)
     loader = data.DataLoader(
         dataset,
         batch_size=args.batch,
@@ -460,5 +592,5 @@ if __name__ == '__main__':
         drop_last=True,
     )
 
-    train(args, loader, generator, discriminator, [smooth_l1_loss, id_loss, mse_loss], g_optim, d_optim, g_ema, lpips_func, device)
+    train(args, loader, generator, discriminator, [net_d_left_eye, net_d_right_eye, net_d_mouth], [smooth_l1_loss, id_loss, mse_loss], [cri_component, cri_gan, cri_l1], g_optim, d_optim, [optimizer_d_left_eye, optimizer_d_right_eye, optimizer_d_mouth], g_ema, lpips_func, device)
    
