@@ -100263,3 +100263,5 @@ weights/030000_512_02861_comp.pth
 __pycache__/FacialComponent.cpython-38.pyc
 facial_comp.ipynb
 test.ipynb
+weights/040000.pth
+test.ipynb

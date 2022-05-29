@@ -291,17 +291,17 @@ def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, 
 
         # facial component loss
         fake_left_eye, fake_left_eye_feats = net_d_left_eye(left_eyes, return_feats=True)
-        l_g_gan = cri_component(fake_left_eye, True, is_disc=False)# * 0.5
+        l_g_gan = cri_component(fake_left_eye, True, is_disc=False)
         g_loss += l_g_gan
         loss_dict['l_g_gan_left_eye'] = l_g_gan
 
         fake_right_eye, fake_right_eye_feats = net_d_right_eye(right_eyes, return_feats=True)
-        l_g_gan = cri_component(fake_right_eye, True, is_disc=False)# * 0.5
+        l_g_gan = cri_component(fake_right_eye, True, is_disc=False)
         g_loss += l_g_gan
         loss_dict['l_g_gan_right_eye'] = l_g_gan
 
         fake_mouth, fake_mouth_feats = net_d_mouth(mouths, return_feats=True)
-        l_g_gan = cri_component(fake_mouth, True, is_disc=False)# * 0.5
+        l_g_gan = cri_component(fake_mouth, True, is_disc=False)
         g_loss += l_g_gan
         loss_dict['l_g_gan_mouth'] = l_g_gan
 
@@ -310,6 +310,7 @@ def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, 
         _, real_right_eye_feats = net_d_right_eye(right_eyes_gt, return_feats=True)
         _, real_mouth_feats = net_d_mouth(mouths_gt, return_feats=True)
 
+        """
         comp_style_loss = 0
         comp_style_loss += comp_style(fake_left_eye_feats, real_left_eye_feats, cri_l1)
         comp_style_loss += comp_style(fake_right_eye_feats, real_right_eye_feats, cri_l1)
@@ -317,6 +318,14 @@ def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, 
         comp_style_loss = comp_style_loss * 100
         g_loss += comp_style_loss
         loss_dict['l_g_comp_style_loss'] = comp_style_loss
+        """
+        comp_fm_loss = 0
+        comp_fm_loss += feature_matching_loss(fake_left_eye_feats, real_left_eye_feats, losses[2])
+        comp_fm_loss += feature_matching_loss(fake_right_eye_feats, real_right_eye_feats, losses[2])
+        comp_fm_loss += feature_matching_loss(fake_mouth_feats, real_mouth_feats, losses[2])
+        comp_fm_loss = comp_fm_loss * 0.02
+        g_loss += comp_fm_loss
+        loss_dict['l_g_comp_fm_loss'] = comp_fm_loss
 
         loss_dict['g'] = g_loss
 
@@ -363,7 +372,7 @@ def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, 
         g_loss_val = loss_reduced['g'].mean().item()
         l_d_mouth_val = loss_reduced['l_d_mouth'].mean().item()
         l_g_gan_mouth_val = loss_reduced['l_g_gan_mouth'].mean().item()
-        l_g_comp_style_loss_val = loss_reduced['l_g_comp_style_loss'].mean().item()
+        l_g_comp_fm_loss_val = loss_reduced['l_g_comp_fm_loss'].mean().item()
         #r1_val = loss_reduced['r1'].mean().item()
         #path_loss_val = loss_reduced['path'].mean().item()
         real_score_val = loss_reduced['real_score'].mean().item()
@@ -373,7 +382,7 @@ def train(args, loader, generator, discriminator, comp_nets, losses, comp_cris, 
         if get_rank() == 0:
             pbar.set_description(
                 (
-                    f'd: {d_loss_val:.4f}; g: {g_loss_val:.4f}; l_d_mouth: {l_d_mouth_val:.4f}; l_g_gan_mouth: {l_g_gan_mouth_val:.4f}; l_g_comp_style_loss: {l_g_comp_style_loss_val:.4f}; '
+                    f'd: {d_loss_val:.4f}; g: {g_loss_val:.4f}; l_d_mouth: {l_d_mouth_val:.4f}; l_g_gan_mouth: {l_g_gan_mouth_val:.4f}; l_g_comp_fm_loss: {l_g_comp_fm_loss_val:.4f}; '
                 )
             )
             

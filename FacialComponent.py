@@ -26,6 +26,7 @@ class FacialComponentDiscriminator(nn.Module):
             x (Tensor): Input images.
             return_feats (bool): Whether to return intermediate features. Default: False.
         """
+        """
         feat = self.conv1(x)
         feat = self.conv3(self.conv2(feat))
         rlt_feats = []
@@ -38,6 +39,17 @@ class FacialComponentDiscriminator(nn.Module):
 
         if return_feats:
             return out, rlt_feats
+        else:
+            return out, None
+        """
+        feats = [self.conv1(x)]
+        feats.append(self.conv2(feats[-1]))
+        feats.append(self.conv3(feats[-1]))
+        feats.append(self.conv4(feats[-1]))
+        feats.append(self.conv5(feats[-1]))
+        out = self.final_conv(feats[-1])
+        if return_feats:
+            return out, feats
         else:
             return out, None
 
